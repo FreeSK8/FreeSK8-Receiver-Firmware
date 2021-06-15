@@ -4,10 +4,18 @@
 
 #include "esp_log.h"
 
+#include "nvs_flash.h"
+#include "esp_event.h"
+#include "esp_netif.h"
+#include "esp_wifi.h"
+
+
 #include "driver/gpio.h"
 #include "driver/uart.h"
 
-//#define ENABLE_DEBUG
+#include "lib/espnow/espnow.h"
+
+#define ENABLE_DEBUG
 
 static const char *TAG = "Receiver";
 
@@ -25,6 +33,8 @@ static const char *TAG = "Receiver";
 #define XBEE_BAUD 115200
 #define XBEE_UART_PORT_NUM 1
 #define XBEE_BUF_SIZE (1024)
+
+static bool receiver_in_pairing_mode = true;
 
 static void gpio_task(void *arg)
 {
@@ -103,6 +113,10 @@ static void xbee_task(void *arg)
     uint8_t *data = (uint8_t *) malloc(XBEE_BUF_SIZE);
 
     while (1) {
+        if (receiver_in_pairing_mode)
+        {
+            example_espnow_init(0x0, 0x0);
+        }
         // Read data from the XBEE
         int len = uart_read_bytes(XBEE_UART_PORT_NUM, data, XBEE_BUF_SIZE, 20 / portTICK_RATE_MS);
 
@@ -120,17 +134,39 @@ static void xbee_task(void *arg)
     }
 }
 
+/* WiFi should start before using ESPNOW */
+static void example_wifi_init(void)
+{
+    ESP_ERROR_CHECK(esp_netif_init());
+    ESP_ERROR_CHECK(esp_event_loop_create_default());
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(ESP_IF_WIFI_AP));
+    ESP_ERROR_CHECK(esp_wifi_start());
+}
+
 void app_main(void)
 {
    	gpio_config_t io_conf;
 
-	/// OUTPUTS
+	// Initialize GPIO
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_OUTPUT;
     io_conf.pin_bit_mask = GPIO_OUTPUT_PIN_SEL;
     io_conf.pull_down_en = 1;
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
+
+    // Initialize NVS for ESPNOW
+    esp_err_t ret = nvs_flash_init();
+    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK( nvs_flash_erase() );
+        ret = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK( ret );
+	example_wifi_init(); // TODO: Only needed for pairing mode
+
     // GPIO task
 	xTaskCreate(gpio_task, "gpio_task", 1024, NULL, 10, NULL);
 
