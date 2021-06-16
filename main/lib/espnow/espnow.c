@@ -376,6 +376,8 @@ static esp_err_t example_espnow_task(void *pvParameter)
 
 esp_err_t example_espnow_init(uint8_t p_xbee_ch, uint16_t p_xbee_id)
 {
+    example_wifi_init();
+
     xbee_ch = p_xbee_ch;
     xbee_id = p_xbee_id;
     example_espnow_send_param_t *send_param;

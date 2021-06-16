@@ -15,7 +15,7 @@
 
 #include "lib/espnow/espnow.h"
 
-#define ENABLE_DEBUG
+//#define ENABLE_DEBUG
 
 static const char *TAG = "Receiver";
 
@@ -38,13 +38,16 @@ static bool receiver_in_pairing_mode = true;
 
 static void gpio_task(void *arg)
 {
+    uint16_t delay = 500;
     while(1)
     {
+        if (receiver_in_pairing_mode) delay = 100;
+        else delay = 1000;
         /// Blink LED
         gpio_set_level(GPIO_OUTPUT_LED, 1);
-        vTaskDelay(500/portTICK_PERIOD_MS);
+        vTaskDelay(delay/portTICK_PERIOD_MS);
         gpio_set_level(GPIO_OUTPUT_LED, 0);
-        vTaskDelay(500/portTICK_PERIOD_MS);
+        vTaskDelay(delay/portTICK_PERIOD_MS);
     }
 }
 
@@ -79,7 +82,6 @@ static void esc_task(void *arg)
 
         if (len) {
             printf("ESC Read %d bytes\n", len);
-            gpio_set_level(GPIO_OUTPUT_LED, 0);
             if (receiver_in_pairing_mode) {
                 receiver_in_pairing_mode = false;
                 example_espnow_cancel();
@@ -117,10 +119,10 @@ static void xbee_task(void *arg)
     uint8_t *data = (uint8_t *) malloc(XBEE_BUF_SIZE);
 
     while (1) {
-        if (receiver_in_pairing_mode)
+        if (receiver_in_pairing_mode) //NOTE: This is only true at boot
         {
             example_espnow_init(0x0, 0x0);
-            receiver_in_pairing_mode = false;
+            receiver_in_pairing_mode = false; //NOTE: Only allowing the pairing process to take place once
         }
         // Read data from the XBEE
         int len = uart_read_bytes(XBEE_UART_PORT_NUM, data, XBEE_BUF_SIZE, 20 / portTICK_RATE_MS);
@@ -137,18 +139,6 @@ static void xbee_task(void *arg)
 
 		vTaskDelay(10/portTICK_PERIOD_MS);
     }
-}
-
-/* WiFi should start before using ESPNOW */
-static void example_wifi_init(void)
-{
-    ESP_ERROR_CHECK(esp_netif_init());
-    ESP_ERROR_CHECK(esp_event_loop_create_default());
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK(esp_wifi_init(&cfg));
-    ESP_ERROR_CHECK(esp_wifi_set_storage(WIFI_STORAGE_RAM));
-    ESP_ERROR_CHECK(esp_wifi_set_mode(ESP_IF_WIFI_AP));
-    ESP_ERROR_CHECK(esp_wifi_start());
 }
 
 void app_main(void)
@@ -170,7 +160,6 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK( ret );
-	example_wifi_init(); // TODO: Only needed for pairing mode
 
     // GPIO task
 	xTaskCreate(gpio_task, "gpio_task", 1024, NULL, 10, NULL);
@@ -183,7 +172,7 @@ void app_main(void)
 #endif
 
     // XBEE task
-	xTaskCreate(xbee_task, "xbee_task", 1024 * 2, NULL, 10, NULL);
+	xTaskCreate(xbee_task, "xbee_task", 1024 * 4, NULL, 10, NULL);
 
     int i = 0;
     while (1) {
