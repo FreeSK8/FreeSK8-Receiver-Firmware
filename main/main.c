@@ -80,6 +80,10 @@ static void esc_task(void *arg)
         if (len) {
             printf("ESC Read %d bytes\n", len);
             gpio_set_level(GPIO_OUTPUT_LED, 0);
+            if (receiver_in_pairing_mode) {
+                receiver_in_pairing_mode = false;
+                example_espnow_cancel();
+            }
             uart_write_bytes(XBEE_UART_PORT_NUM, data, len);
         }
 
@@ -116,6 +120,7 @@ static void xbee_task(void *arg)
         if (receiver_in_pairing_mode)
         {
             example_espnow_init(0x0, 0x0);
+            receiver_in_pairing_mode = false;
         }
         // Read data from the XBEE
         int len = uart_read_bytes(XBEE_UART_PORT_NUM, data, XBEE_BUF_SIZE, 20 / portTICK_RATE_MS);
