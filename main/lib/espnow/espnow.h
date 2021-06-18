@@ -90,7 +90,9 @@ enum {
     PAIRING_STATE_FAILED
 };
 
-esp_err_t example_espnow_init(u_int8_t xbee_ch, u_int16_t xbee_id);
+typedef bool (*configure_xbee_func)(uint8_t, uint16_t);
+
+esp_err_t example_espnow_init(u_int8_t xbee_ch, u_int16_t xbee_id, configure_xbee_func p_configure_xbee);
 void example_espnow_cancel();
 
 #endif

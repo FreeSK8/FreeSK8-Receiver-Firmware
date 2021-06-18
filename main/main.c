@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <string.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -15,7 +17,7 @@
 
 #include "lib/espnow/espnow.h"
 
-//#define ENABLE_DEBUG
+#define ENABLE_DEBUG
 
 static const char *TAG = "Receiver";
 
@@ -82,9 +84,11 @@ static void esc_task(void *arg)
 
         if (len) {
             printf("ESC Read %d bytes\n", len);
+            // Cancel pairing mode if the ESC is responding to the remote
             if (receiver_in_pairing_mode) {
                 receiver_in_pairing_mode = false;
-                example_espnow_cancel();
+                //TODO: this does not work but I have no debugger with ESC connected :(
+                    //example_espnow_cancel();
             }
             uart_write_bytes(XBEE_UART_PORT_NUM, data, len);
         }
@@ -93,6 +97,105 @@ static void esc_task(void *arg)
     }
 }
 
+static void xbee_send_string(unsigned char *data) {
+	unsigned int len = strlen((char*)data);
+	uart_write_bytes(XBEE_UART_PORT_NUM, data, len);
+}
+static bool xbee_wait_ok(uint8_t *data, bool is_fatal)
+{
+	TickType_t startTick = xTaskGetTickCount();
+	TickType_t endTick, diffTick;
+	bool receivedOK = false;
+	bool receivedO = false;
+	bool receivedK = false;
+	endTick = xTaskGetTickCount();
+	diffTick = endTick - startTick;
+	while(!receivedOK && diffTick*portTICK_RATE_MS < 1500)
+	{
+		int length = uart_read_bytes(XBEE_UART_PORT_NUM, data, XBEE_BUF_SIZE, 20 / portTICK_RATE_MS);
+		if (length) {
+			for (int i = 0; i < length; i++) {
+				if (data[i] == 0x4F) receivedO = true;
+				if (data[i] == 0x4B) receivedK = true;
+			}
+		}
+		if (receivedO && receivedK) receivedOK = true;
+
+		endTick = xTaskGetTickCount();
+		diffTick = endTick - startTick;
+	}
+	if (is_fatal && !receivedOK)
+	{
+		ESP_LOGE(__FUNCTION__,"XBEE did not OK! Haulting");
+		while(1) {
+			vTaskDelay(1000/portTICK_PERIOD_MS);
+		}
+	}
+	return receivedOK;
+}
+bool xbee_configure(uint8_t p_xbee_ch, uint16_t p_xbee_id)
+{
+    ESP_LOGI(__FUNCTION__,"Configuring XBEE");
+    uint8_t data[16] = {0};
+
+    vTaskDelay(1000/portTICK_PERIOD_MS);
+    xbee_send_string((unsigned char *)"+++");
+    //TODO: Check for OK message from XBEE at all baud rates
+    if (!xbee_wait_ok(data, false)) {
+        //TODO: What do we do if the xbee doesn't respond??????
+        ESP_LOGE(__FUNCTION__, "XBEE Did not respond");
+        while(1) {
+            vTaskDelay(100/portTICK_PERIOD_MS);
+        }
+    } else {
+        ESP_LOGI(__FUNCTION__, "XBEE OK");
+    }
+    ESP_LOGI(__FUNCTION__,"XBEE READY");
+
+    bool configuration_success = true;
+    unsigned char write_data[10] = {0};
+    sprintf((char*)write_data, "ATCH%02x\r", p_xbee_ch);
+    xbee_send_string(write_data);
+    if (configuration_success) configuration_success = xbee_wait_ok(data, false);
+
+    sprintf((char*)write_data, "ATID%04x\r", p_xbee_id);
+    xbee_send_string(write_data);
+    if (configuration_success) configuration_success = xbee_wait_ok(data, false);
+
+    xbee_send_string((unsigned char*)"ATDH0\r"); // Destination High is 0
+    if (configuration_success) configuration_success = xbee_wait_ok(data, false);
+
+    xbee_send_string((unsigned char*)"ATDL1\r"); // Destination Low is #1
+    if (configuration_success) configuration_success = xbee_wait_ok(data, false);
+
+    xbee_send_string((unsigned char*)"ATMY2\r"); // My Address is #2
+    if (configuration_success) configuration_success = xbee_wait_ok(data, false);
+
+    xbee_send_string((unsigned char*)"ATBD7\r"); // Baud 115200
+    if (configuration_success) configuration_success = xbee_wait_ok(data, false);
+
+    xbee_send_string((unsigned char*)"ATD70\r"); // Digital IO7 is Disabled
+    if (configuration_success) configuration_success = xbee_wait_ok(data, false);
+
+    xbee_send_string((unsigned char*)"ATWR\r"); // Write configuration
+    if (configuration_success) configuration_success = xbee_wait_ok(data, false);
+
+    xbee_send_string((unsigned char*)"ATCN\r"); // Exit Command mode
+    if (configuration_success) configuration_success = xbee_wait_ok(data, false);
+
+    if (configuration_success) {
+        ESP_LOGI(__FUNCTION__, "XBEE Configuration Successful");
+    } else {
+        ESP_LOGE(__FUNCTION__, "XBEE Configuration failed");
+        while(1) {
+            vTaskDelay(100/portTICK_PERIOD_MS);
+        }
+    }
+
+    printf("XBEE Configured\n");
+
+    return true;
+}
 static void xbee_task(void *arg)
 {
     /* Configure parameters of an UART driver,
@@ -119,10 +222,9 @@ static void xbee_task(void *arg)
     uint8_t *data = (uint8_t *) malloc(XBEE_BUF_SIZE);
 
     while (1) {
-        if (receiver_in_pairing_mode) //NOTE: This is only true at boot
-        {
-            example_espnow_init(0x0, 0x0);
-            receiver_in_pairing_mode = false; //NOTE: Only allowing the pairing process to take place once
+        if (receiver_in_pairing_mode) {
+            vTaskDelay(10/portTICK_PERIOD_MS);
+            continue;
         }
         // Read data from the XBEE
         int len = uart_read_bytes(XBEE_UART_PORT_NUM, data, XBEE_BUF_SIZE, 20 / portTICK_RATE_MS);
@@ -173,6 +275,13 @@ void app_main(void)
 
     // XBEE task
 	xTaskCreate(xbee_task, "xbee_task", 1024 * 4, NULL, 10, NULL);
+
+    vTaskDelay(1000 / portTICK_PERIOD_MS); //NOTE: Wait 1 second for paired device to communicate and cancel pairing
+    if (receiver_in_pairing_mode) //NOTE: This is only true at boot
+    {
+        example_espnow_init(0x0, 0x0, &xbee_configure);
+        receiver_in_pairing_mode = false; //NOTE: Only allowing the pairing process to take place once
+    }
 
     int i = 0;
     while (1) {
