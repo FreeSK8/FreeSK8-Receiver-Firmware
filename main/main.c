@@ -17,7 +17,7 @@
 
 #include "lib/espnow/espnow.h"
 
-#define ENABLE_DEBUG
+//#define ENABLE_DEBUG
 
 static const char *TAG = "Receiver";
 
@@ -37,6 +37,7 @@ static const char *TAG = "Receiver";
 #define XBEE_BUF_SIZE (1024)
 
 static bool receiver_in_pairing_mode = true;
+static bool pairing_active = false;
 
 static void gpio_task(void *arg)
 {
@@ -222,7 +223,8 @@ static void xbee_task(void *arg)
     uint8_t *data = (uint8_t *) malloc(XBEE_BUF_SIZE);
 
     while (1) {
-        if (receiver_in_pairing_mode) {
+        if (pairing_active) {
+            // Do not consume data here if pairing is active
             vTaskDelay(10/portTICK_PERIOD_MS);
             continue;
         }
@@ -279,7 +281,9 @@ void app_main(void)
     vTaskDelay(1000 / portTICK_PERIOD_MS); //NOTE: Wait 1 second for paired device to communicate and cancel pairing
     if (receiver_in_pairing_mode) //NOTE: This is only true at boot
     {
+        pairing_active = true;
         example_espnow_init(0x0, 0x0, &xbee_configure);
+        pairing_active = false;
         receiver_in_pairing_mode = false; //NOTE: Only allowing the pairing process to take place once
     }
 
