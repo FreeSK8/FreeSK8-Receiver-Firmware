@@ -37,7 +37,7 @@ static const char *TAG = "Receiver";
 #define XBEE_BUF_SIZE (1024)
 
 static bool receiver_in_pairing_mode = true;
-static bool pairing_active = false;
+static bool xbee_in_configuration = false;
 
 static void gpio_task(void *arg)
 {
@@ -85,12 +85,6 @@ static void esc_task(void *arg)
 
         if (len) {
             printf("ESC Read %d bytes\n", len);
-            // Cancel pairing mode if the ESC is responding to the remote
-            if (receiver_in_pairing_mode) {
-                receiver_in_pairing_mode = false;
-                //TODO: this does not work but I have no debugger with ESC connected :(
-                    //example_espnow_cancel();
-            }
             uart_write_bytes(XBEE_UART_PORT_NUM, data, len);
         }
 
@@ -138,6 +132,8 @@ bool xbee_configure(uint8_t p_xbee_ch, uint16_t p_xbee_id)
 {
     ESP_LOGI(__FUNCTION__,"Configuring XBEE");
     uint8_t data[16] = {0};
+
+    xbee_in_configuration = true;
 
     vTaskDelay(1000/portTICK_PERIOD_MS);
     xbee_send_string((unsigned char *)"+++");
@@ -195,6 +191,8 @@ bool xbee_configure(uint8_t p_xbee_ch, uint16_t p_xbee_id)
 
     printf("XBEE Configured\n");
 
+    xbee_in_configuration = false;
+
     return true;
 }
 static void xbee_task(void *arg)
@@ -223,8 +221,8 @@ static void xbee_task(void *arg)
     uint8_t *data = (uint8_t *) malloc(XBEE_BUF_SIZE);
 
     while (1) {
-        if (pairing_active) {
-            // Do not consume data here if pairing is active
+        if (xbee_in_configuration) {
+            // Do not consume data here if the XBEE is being configured
             vTaskDelay(10/portTICK_PERIOD_MS);
             continue;
         }
@@ -232,6 +230,12 @@ static void xbee_task(void *arg)
         int len = uart_read_bytes(XBEE_UART_PORT_NUM, data, XBEE_BUF_SIZE, 20 / portTICK_RATE_MS);
 
         if (len) {
+            // Cancel pairing mode if the XBEE is receiving from the remote
+            if (receiver_in_pairing_mode) {
+                ESP_LOGI(__FUNCTION__, "Pairing mode deactivated by XBEE communication");
+                receiver_in_pairing_mode = false;
+                //TODO: example_espnow_cancel(); causes laggy response to input but requires debugger
+            }
             printf("XBEE Read %d bytes\n", len);
             gpio_set_level(GPIO_OUTPUT_LED, 1);
 #ifdef ENABLE_DEBUG
@@ -281,9 +285,7 @@ void app_main(void)
     vTaskDelay(1000 / portTICK_PERIOD_MS); //NOTE: Wait 1 second for paired device to communicate and cancel pairing
     if (receiver_in_pairing_mode) //NOTE: This is only true at boot
     {
-        pairing_active = true;
         example_espnow_init(0x0, 0x0, &xbee_configure);
-        pairing_active = false;
         receiver_in_pairing_mode = false; //NOTE: Only allowing the pairing process to take place once
     }
 
