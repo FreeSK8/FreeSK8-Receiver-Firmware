@@ -128,7 +128,7 @@ static bool xbee_wait_ok(uint8_t *data, bool is_fatal)
 	}
 	return receivedOK;
 }
-bool xbee_configure(uint8_t p_xbee_ch, uint16_t p_xbee_id)
+bool xbee_configure(uint8_t p_xbee_ch, uint16_t p_xbee_id, uint16_t p_xbee_remote_address, uint16_t p_xbee_receiver_address)
 {
     ESP_LOGI(__FUNCTION__,"Configuring XBEE");
     uint8_t data[16] = {0};
@@ -151,21 +151,23 @@ bool xbee_configure(uint8_t p_xbee_ch, uint16_t p_xbee_id)
 
     bool configuration_success = true;
     unsigned char write_data[10] = {0};
-    sprintf((char*)write_data, "ATCH%02x\r", p_xbee_ch);
+    sprintf((char*)write_data, "ATCH%02x\r", p_xbee_ch); // Network Channel
     xbee_send_string(write_data);
     if (configuration_success) configuration_success = xbee_wait_ok(data, false);
 
-    sprintf((char*)write_data, "ATID%04x\r", p_xbee_id);
+    sprintf((char*)write_data, "ATID%04x\r", p_xbee_id); // Network ID
     xbee_send_string(write_data);
     if (configuration_success) configuration_success = xbee_wait_ok(data, false);
 
     xbee_send_string((unsigned char*)"ATDH0\r"); // Destination High is 0
     if (configuration_success) configuration_success = xbee_wait_ok(data, false);
 
-    xbee_send_string((unsigned char*)"ATDL1\r"); // Destination Low is #1
+    sprintf((char*)write_data, "ATDL%04x\r", p_xbee_remote_address); // Destination Low
+	xbee_send_string(write_data);
     if (configuration_success) configuration_success = xbee_wait_ok(data, false);
 
-    xbee_send_string((unsigned char*)"ATMY2\r"); // My Address is #2
+    sprintf((char*)write_data, "ATMY%04x\r", p_xbee_receiver_address); // My Address
+	xbee_send_string(write_data);
     if (configuration_success) configuration_success = xbee_wait_ok(data, false);
 
     xbee_send_string((unsigned char*)"ATBD7\r"); // Baud 115200
@@ -285,7 +287,7 @@ void app_main(void)
     vTaskDelay(1000 / portTICK_PERIOD_MS); //NOTE: Wait 1 second for paired device to communicate and cancel pairing
     if (receiver_in_pairing_mode) //NOTE: This is only true at boot
     {
-        example_espnow_init(0x0, 0x0, &xbee_configure);
+        example_espnow_init(0x0, 0x0, 0x0, 0x0, &xbee_configure);
         receiver_in_pairing_mode = false; //NOTE: Only allowing the pairing process to take place once
     }
 
