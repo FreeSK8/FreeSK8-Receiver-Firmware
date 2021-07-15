@@ -24,8 +24,8 @@ static const char *TAG = "Receiver";
 #define GPIO_OUTPUT_LED 2  //LED
 #define GPIO_OUTPUT_PIN_SEL (1ULL<<GPIO_OUTPUT_LED)
 
-#define ESC_TXD 1
-#define ESC_RXD 3
+#define ESC_TXD 3 //Send to ESC
+#define ESC_RXD 1
 #define ESC_BAUD 115200
 #define ESC_UART_PORT_NUM 2
 #define ESC_BUF_SIZE (1024)
