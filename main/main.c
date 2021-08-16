@@ -236,7 +236,9 @@ static void xbee_task(void *arg)
             if (receiver_in_pairing_mode) {
                 ESP_LOGI(__FUNCTION__, "Pairing mode deactivated by XBEE communication");
                 receiver_in_pairing_mode = false;
-                //TODO: example_espnow_cancel(); causes laggy response to input but requires debugger
+                // Shut down ESPNOW and WiFi
+                example_espnow_cancel();
+                esp_wifi_stop();
             }
             printf("XBEE Read %d bytes\n", len);
             gpio_set_level(GPIO_OUTPUT_LED, 1);
@@ -289,6 +291,7 @@ void app_main(void)
     {
         example_espnow_init(0x0, 0x0, 0x0, 0x0, &xbee_configure);
         receiver_in_pairing_mode = false; //NOTE: Only allowing the pairing process to take place once
+        esp_wifi_stop(); // Turn off wifi to save power after pairing
     }
 
     int i = 0;
