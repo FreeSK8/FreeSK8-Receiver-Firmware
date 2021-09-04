@@ -3,12 +3,13 @@ set(COMPONENT_REQUIRES )
 set(COMPONENT_PRIV_REQUIRES )
 
 set(COMPONENT_SRCS "main.c"
+    "lib/espnow/espnow.c"
     "lib/vesc/crc.c"
     "lib/vesc/buffer.c"
     "lib/vesc/datatypes.c"
     "lib/vesc/packet.c"
     )
-set(COMPONENT_ADD_INCLUDEDIRS "./lib/vesc;")
+set(COMPONENT_ADD_INCLUDEDIRS "./lib/espnow;./lib/vesc;")
 
 register_component()
 
