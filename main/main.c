@@ -17,9 +17,9 @@
 
 #include "lib/espnow/espnow.h"
 
-//#define ENABLE_DEBUG
+#include "driver/mcpwm.h"
 
-static const char *TAG = "Receiver";
+//#define ENABLE_DEBUG
 
 #define GPIO_OUTPUT_LED 2  //LED
 #define GPIO_OUTPUT_PIN_SEL (1ULL<<GPIO_OUTPUT_LED)
@@ -36,8 +36,89 @@ static const char *TAG = "Receiver";
 #define XBEE_UART_PORT_NUM 1
 #define XBEE_BUF_SIZE (1024)
 
+#define GPS_TXD 27 //Send to GPS
+#define GPS_RXD 26
+#define GPIO_PPM_TOGGLE (1ULL<<GPS_TXD)
+#define GPIO_PPM_OUTPUT (1ULL<<GPS_RXD)
+
+static bool receiver_in_ppm_mode = false;
+
 static bool receiver_in_pairing_mode = true;
 static bool xbee_in_configuration = false;
+
+/* PWM */
+#define PWM_MIN_PULSEWIDTH_US (1000) // Minimum pulse width in microsecond
+#define PWM_MAX_PULSEWIDTH_US (2000) // Maximum pulse width in microsecond
+long map(long x, long in_min, long in_max, long out_min, long out_max) {
+	if (x < in_min) x = in_min;
+	if (x > in_max) x = in_max;
+	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+/* PWM */
+
+/* VESC */
+#include "crc.h"
+#include "packet.h"
+#include "buffer.h"
+#include "datatypes.h"
+
+#define PACKET_VESC						0
+
+static int packet_send_payload(uint8_t * payload, int lenPay) {
+
+	uint16_t crcPayload = crc16(payload, lenPay);
+	int count = 0;
+	uint8_t messageSend[256];
+
+	if (lenPay <= 256)
+	{
+		messageSend[count++] = 2;
+		messageSend[count++] = lenPay;
+	}
+	else
+	{
+		messageSend[count++] = 3;
+		messageSend[count++] = (uint8_t)(lenPay >> 8);
+		messageSend[count++] = (uint8_t)(lenPay & 0xFF);
+	}
+
+	memcpy(&messageSend[count], payload, lenPay);
+
+	count += lenPay;
+	messageSend[count++] = (uint8_t)(crcPayload >> 8);
+	messageSend[count++] = (uint8_t)(crcPayload & 0xFF);
+	messageSend[count++] = 3;
+	messageSend[count] = '\0';
+
+
+	// Sending package
+	uart_write_bytes(ESC_UART_PORT_NUM, messageSend, count);
+
+	// Returns number of send bytes
+	return count;
+}
+
+static void uart_send_buffer(unsigned char *data, unsigned int len) {
+	uart_write_bytes(ESC_UART_PORT_NUM, data, len);
+}
+
+void process_packet_vesc(unsigned char *data, unsigned int len) {
+    // Intercept CHUCK_DATA and generate PWM signal
+	if (data[0] == COMM_SET_CHUCK_DATA)
+	{
+        uint8_t joystick_value = data[2];
+        long chuck_joy_microseconds = map(joystick_value, 0, 255, PWM_MIN_PULSEWIDTH_US, PWM_MAX_PULSEWIDTH_US);
+        // Set PPM output value
+        ESP_ERROR_CHECK(mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, chuck_joy_microseconds));
+#ifdef ENABLE_DEBUG
+        ESP_LOGI(__FUNCTION__,"RECEIVED CHUCK DATA IN PPM MODE");
+#endif
+	} else {
+		// Pass data to ESC
+        packet_send_payload(data, len);
+	}
+}
+/* VESC */
 
 static void gpio_task(void *arg)
 {
@@ -84,7 +165,6 @@ static void esc_task(void *arg)
         int len = uart_read_bytes(ESC_UART_PORT_NUM, data, ESC_BUF_SIZE, 20 / portTICK_RATE_MS);
 
         if (len) {
-            printf("ESC Read %d bytes\n", len);
             uart_write_bytes(XBEE_UART_PORT_NUM, data, len);
         }
 
@@ -121,7 +201,7 @@ static bool xbee_wait_ok(uint8_t *data, bool is_fatal)
 	}
 	if (is_fatal && !receivedOK)
 	{
-		ESP_LOGE(__FUNCTION__,"XBEE did not OK! Haulting");
+		ESP_LOGE(__FUNCTION__,"XBEE did not OK! Receiver Haulting");
 		while(1) {
 			vTaskDelay(1000/portTICK_PERIOD_MS);
 		}
@@ -130,7 +210,9 @@ static bool xbee_wait_ok(uint8_t *data, bool is_fatal)
 }
 bool xbee_configure(uint8_t p_xbee_ch, uint16_t p_xbee_id, uint16_t p_xbee_remote_address, uint16_t p_xbee_receiver_address)
 {
+#ifdef ENABLE_DEBUG
     ESP_LOGI(__FUNCTION__,"Configuring XBEE");
+#endif
     uint8_t data[16] = {0};
 
     xbee_in_configuration = true;
@@ -140,14 +222,20 @@ bool xbee_configure(uint8_t p_xbee_ch, uint16_t p_xbee_id, uint16_t p_xbee_remot
     //TODO: Check for OK message from XBEE at all baud rates
     if (!xbee_wait_ok(data, false)) {
         //TODO: What do we do if the xbee doesn't respond??????
+#ifdef ENABLE_DEBUG
         ESP_LOGE(__FUNCTION__, "XBEE Did not respond");
+#endif
         while(1) {
             vTaskDelay(100/portTICK_PERIOD_MS);
         }
     } else {
+#ifdef ENABLE_DEBUG
         ESP_LOGI(__FUNCTION__, "XBEE OK");
+#endif
     }
+#ifdef ENABLE_DEBUG
     ESP_LOGI(__FUNCTION__,"XBEE READY");
+#endif
 
     bool configuration_success = true;
     unsigned char write_data[10] = {0};
@@ -183,16 +271,20 @@ bool xbee_configure(uint8_t p_xbee_ch, uint16_t p_xbee_id, uint16_t p_xbee_remot
     if (configuration_success) configuration_success = xbee_wait_ok(data, false);
 
     if (configuration_success) {
+#ifdef ENABLE_DEBUG
         ESP_LOGI(__FUNCTION__, "XBEE Configuration Successful");
+#endif
     } else {
+#ifdef ENABLE_DEBUG
         ESP_LOGE(__FUNCTION__, "XBEE Configuration failed");
+#endif
         while(1) {
             vTaskDelay(100/portTICK_PERIOD_MS);
         }
     }
-
+#ifdef ENABLE_DEBUG
     printf("XBEE Configured\n");
-
+#endif
     xbee_in_configuration = false;
 
     return true;
@@ -222,6 +314,10 @@ static void xbee_task(void *arg)
     // Configure a temporary buffer for the incoming data
     uint8_t *data = (uint8_t *) malloc(XBEE_BUF_SIZE);
 
+    if (receiver_in_ppm_mode) {
+        packet_init(uart_send_buffer, process_packet_vesc, PACKET_VESC);
+    }
+
     while (1) {
         if (xbee_in_configuration) {
             // Do not consume data here if the XBEE is being configured
@@ -234,18 +330,29 @@ static void xbee_task(void *arg)
         if (len) {
             // Cancel pairing mode if the XBEE is receiving from the remote
             if (receiver_in_pairing_mode) {
+#ifdef ENABLE_DEBUG
                 ESP_LOGI(__FUNCTION__, "Pairing mode deactivated by XBEE communication");
+#endif
                 receiver_in_pairing_mode = false;
                 // Shut down ESPNOW and WiFi
                 example_espnow_cancel();
                 esp_wifi_stop();
             }
-            printf("XBEE Read %d bytes\n", len);
+
             gpio_set_level(GPIO_OUTPUT_LED, 1);
 #ifdef ENABLE_DEBUG
-            printf("ESC unavailable while debugging");
+            printf("XBEE Read %d bytes\n", len);
+            printf("ESC unavailable while debugging\n");
 #else
-            uart_write_bytes(ESC_UART_PORT_NUM, data, len);
+            if (receiver_in_ppm_mode) {
+                // Process remote communication
+                for (int i = 0;i < len;i++) {
+					packet_process_byte(data[i], PACKET_VESC);
+				}
+            } else {
+                // Pass data directly to ESC via UART
+                uart_write_bytes(ESC_UART_PORT_NUM, data, len);
+            }
 #endif
         }
 
@@ -253,8 +360,48 @@ static void xbee_task(void *arg)
     }
 }
 
+void check_ppm_mode(void)
+{
+    gpio_config_t io_conf;
+
+    // Initialize GPIO
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pin_bit_mask = GPIO_PPM_TOGGLE;
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 1;
+    gpio_config(&io_conf);
+
+    receiver_in_ppm_mode = !gpio_get_level(GPS_TXD);
+
+    if (receiver_in_ppm_mode) {
+#ifdef ENABLE_DEBUG
+        ESP_LOGI(__FUNCTION__,"RECEIVER IN PPM MODE");
+#endif
+        io_conf.intr_type = GPIO_INTR_DISABLE;
+        io_conf.mode = GPIO_MODE_OUTPUT;
+        io_conf.pin_bit_mask = GPIO_PPM_OUTPUT;
+        io_conf.pull_down_en = 1;
+        io_conf.pull_up_en = 0;
+        gpio_config(&io_conf);
+
+        // Init MCPWM generator
+        mcpwm_gpio_init(MCPWM_UNIT_0, MCPWM0A, GPS_RXD);
+
+        mcpwm_config_t pwm_config = {
+            .frequency = 100, // Hz
+            .cmpr_a = 0,     // duty cycle of PWMxA = 0
+            .counter_mode = MCPWM_UP_COUNTER,
+            .duty_mode = MCPWM_DUTY_MODE_0,
+        };
+        mcpwm_init(MCPWM_UNIT_0, MCPWM_TIMER_0, &pwm_config);
+    }
+}
+
 void app_main(void)
 {
+    check_ppm_mode();
+
    	gpio_config_t io_conf;
 
 	// Initialize GPIO
@@ -277,7 +424,7 @@ void app_main(void)
 	xTaskCreate(gpio_task, "gpio_task", 1024, NULL, 10, NULL);
 
 #ifdef ENABLE_DEBUG
-    ESP_LOGI(TAG, "Debugging is enabled. ESC comms are unavailable");
+    ESP_LOGI(__FUNCTION__, "Debugging is enabled. ESC comms are unavailable");
 #else
     // ESC task
 	xTaskCreate(esc_task, "esc_task", 1024 * 2, NULL, 10, NULL);
@@ -294,10 +441,13 @@ void app_main(void)
         esp_wifi_stop(); // Turn off wifi to save power after pairing
     }
 
+#ifdef ENABLE_DEBUG
     int i = 0;
+#endif
     while (1) {
-        printf("[%d] Stayin' Alive!\n", i);
-        i++;
+#ifdef ENABLE_DEBUG
+        printf("[%d] Stayin' Alive!\n", i++);
+#endif
         vTaskDelay(5000 / portTICK_PERIOD_MS);
     }
 }
