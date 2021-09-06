@@ -5,5 +5,5 @@
 ```
 
 ```
-idf.py -p /dev/ttyUSB3 build flash monitor
+idf.py -p /dev/ttyUSB1 build flash monitor
 ```
