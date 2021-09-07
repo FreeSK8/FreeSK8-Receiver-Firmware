@@ -47,8 +47,10 @@ static bool receiver_in_pairing_mode = true;
 static bool xbee_in_configuration = false;
 
 /* PWM */
+TickType_t pwm_last_updated;
 #define PWM_MIN_PULSEWIDTH_US (1000) // Minimum pulse width in microsecond
 #define PWM_MAX_PULSEWIDTH_US (2000) // Maximum pulse width in microsecond
+#define PWM_TIMEOUT_MS (900)
 long map(long x, long in_min, long in_max, long out_min, long out_max) {
 	if (x < in_min) x = in_min;
 	if (x > in_max) x = in_max;
@@ -106,6 +108,7 @@ void process_packet_vesc(unsigned char *data, unsigned int len) {
     // Intercept CHUCK_DATA and generate PWM signal
 	if (data[0] == COMM_SET_CHUCK_DATA)
 	{
+        pwm_last_updated = xTaskGetTickCount();
         uint8_t joystick_value = data[2];
         long chuck_joy_microseconds = map(joystick_value, 0, 255, PWM_MIN_PULSEWIDTH_US, PWM_MAX_PULSEWIDTH_US);
         // Set PPM output value
@@ -441,13 +444,19 @@ void app_main(void)
         esp_wifi_stop(); // Turn off wifi to save power after pairing
     }
 
-#ifdef ENABLE_DEBUG
-    int i = 0;
-#endif
     while (1) {
+        // Delay, but not too long. This adds to the potential PWM_TIMEOUT_MS
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+
+        if (receiver_in_ppm_mode) {
+            // Check if the remote signal has timed out
+            if ((xTaskGetTickCount() - pwm_last_updated) * portTICK_RATE_MS > PWM_TIMEOUT_MS) {
+                // Cancel PWM signal generation
+                ESP_ERROR_CHECK(mcpwm_set_duty_in_us(MCPWM_UNIT_0, MCPWM_TIMER_0, MCPWM_OPR_A, 0));
 #ifdef ENABLE_DEBUG
-        printf("[%d] Stayin' Alive!\n", i++);
+                ESP_LOGW(__FUNCTION__, "Signal lost while in PPM mode");
 #endif
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
+            }
+        }
     }
 }
