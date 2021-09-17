@@ -175,7 +175,9 @@ static void esc_task(void *arg)
         }
 
         if ((xTaskGetTickCount() - esc_last_responded) * portTICK_RATE_MS > 1000) {
-            ESP_LOGW(__FUNCTION__,"ESC has not responded for 1000ms. Swapping TX/RX");
+#ifdef ENABLE_DEBUG
+            ESP_LOGW(__FUNCTION__,"ESC has not responded for 1000ms. Swapping TX/RX (%d)", !esc_pins_swapped);
+#endif
             esc_pins_swapped = !esc_pins_swapped;
             if (esc_pins_swapped) {
                 // Swap ESC TX and RX
