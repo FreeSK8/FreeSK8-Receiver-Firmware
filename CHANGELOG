@@ -1,3 +1,7 @@
+v0.3.0
+
+* Swap ESC TX/RX with 1s of inactivity
+
 v0.2.1
 
 * Cancel PWM signal if remote times out
