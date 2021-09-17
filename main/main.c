@@ -21,6 +21,8 @@
 
 //#define ENABLE_DEBUG
 
+const char * version = "0.3.0";
+
 #define GPIO_OUTPUT_LED 2  //LED
 #define GPIO_OUTPUT_PIN_SEL (1ULL<<GPIO_OUTPUT_LED)
 
@@ -421,6 +423,9 @@ void check_ppm_mode(void)
 
 void app_main(void)
 {
+#ifdef ENABLE_DEBUG
+    ESP_LOGI(__FUNCTION__, "Starting FreeSK8 Receiver v%s", version);
+#endif
     check_ppm_mode();
 
    	gpio_config_t io_conf;
