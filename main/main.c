@@ -163,12 +163,28 @@ static void esc_task(void *arg)
     // Configure a temporary buffer for the incoming data
     uint8_t *data = (uint8_t *) malloc(ESC_BUF_SIZE);
 
+    TickType_t esc_last_responded = xTaskGetTickCount();
+    bool esc_pins_swapped = false;
     while (1) {
         // Read data from the ESC
         int len = uart_read_bytes(ESC_UART_PORT_NUM, data, ESC_BUF_SIZE, 20 / portTICK_RATE_MS);
 
         if (len) {
             uart_write_bytes(XBEE_UART_PORT_NUM, data, len);
+            esc_last_responded = xTaskGetTickCount();
+        }
+
+        if ((xTaskGetTickCount() - esc_last_responded) * portTICK_RATE_MS > 1000) {
+            ESP_LOGW(__FUNCTION__,"ESC has not responded for 1000ms. Swapping TX/RX");
+            esc_pins_swapped = !esc_pins_swapped;
+            if (esc_pins_swapped) {
+                // Swap ESC TX and RX
+                ESP_ERROR_CHECK(uart_set_pin(ESC_UART_PORT_NUM, ESC_RXD, ESC_TXD, 0, 0));
+            } else {
+                // Set default ESC TX/RX configuration
+                ESP_ERROR_CHECK(uart_set_pin(ESC_UART_PORT_NUM, ESC_TXD, ESC_RXD, 0, 0));
+            }
+            esc_last_responded = xTaskGetTickCount(); // Reset ESC reponded time
         }
 
 		vTaskDelay(10/portTICK_PERIOD_MS);
