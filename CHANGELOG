@@ -1,3 +1,7 @@
+v0.3.1
+
+* Change pin assignment for v1.1 hardware
+
 v0.3.0
 
 * Swap ESC TX/RX with 1s of inactivity
