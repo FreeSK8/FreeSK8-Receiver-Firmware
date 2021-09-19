@@ -21,13 +21,13 @@
 
 //#define ENABLE_DEBUG
 
-const char * version = "0.3.0";
+const char * version = "0.3.1";
 
 #define GPIO_OUTPUT_LED 2  //LED
 #define GPIO_OUTPUT_PIN_SEL (1ULL<<GPIO_OUTPUT_LED)
 
-#define ESC_TXD 3 //Send to ESC
-#define ESC_RXD 1
+#define ESC_TXD 27 //Send to ESC
+#define ESC_RXD 26
 #define ESC_BAUD 115200
 #define ESC_UART_PORT_NUM 2
 #define ESC_BUF_SIZE (1024)
@@ -38,8 +38,8 @@ const char * version = "0.3.0";
 #define XBEE_UART_PORT_NUM 1
 #define XBEE_BUF_SIZE (1024)
 
-#define GPS_TXD 27 //Send to GPS
-#define GPS_RXD 26
+#define GPS_TXD 3 //Send to GPS
+#define GPS_RXD 1
 #define GPIO_PPM_TOGGLE (1ULL<<GPS_TXD)
 #define GPIO_PPM_OUTPUT (1ULL<<GPS_RXD)
 
